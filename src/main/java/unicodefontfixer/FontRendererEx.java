@@ -30,7 +30,6 @@ public class FontRendererEx extends FontRenderer {
 	public static RenderingAdapter debugger = new RenderingAdapter.Debugger();
 	public static boolean initialized = false;
 	public static boolean checkingStackDepth = false;
-	
 	private static final FloatBuffer MV_BUF = BufferUtils.createFloatBuffer(16);
 	
 	public FontRenderer proxy;
@@ -55,14 +54,6 @@ public class FontRendererEx extends FontRenderer {
 		}
 	}
 	
-	private int drawPlain(RenderingText text) {
-		if (text.wrap) {
-			proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
-			return 0;
-		}
-		return proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
-	}
-	
 	public int drawStringChecked(RenderingText text) {
 		if (text.string == null) return 0;
 		if (checkingStackDepth) {
@@ -77,39 +68,40 @@ public class FontRendererEx extends FontRenderer {
 			}
 			return 0;
 		}
+		Double ratio = null;
+		boolean pop = false;
 		proxy.FONT_HEIGHT = this.FONT_HEIGHT;
-		
 		double rawScale = GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX);
 		if (rawScale >= 0.25 && rawScale < 1.0 && ((policy == 2 && this.getUnicodeFlag()) || policy == 1)) {
-			if (!isGuiContext()) return drawPlain(text);
-			
-			GL11.glPushMatrix();
-			Double ratio = null;
-			int at = 0;
-			try {
-				int idx = stackDepth + 1;
-				text.stackTrace = new Throwable().getStackTrace();
-				RenderingAdapter worker = adapters[0].get(text.stackTrace[++idx].getClassName());
-				if (worker == null) worker = adapters[1].get(text.stackTrace[++idx].getClassName());
-				if (worker == null) worker = debugger;
-				ratio = worker.adjust(text);
-				if (ratio != null) {
-					textScale.put(text.string.trim() + "@" + text.stackTrace[idx].getClassName(), ratio);
-					text.wrapWidth = (int)Math.round(text.wrapWidth * ratio);
-				}
+			if (!isGuiContext()) {
 				if (text.wrap) {
 					proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
-				} else {
-					at = proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
+					return 0;
 				}
-			} finally {
-				GL11.glPopMatrix();
+				return proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
 			}
-			if (text.wrap) return 0;
-			if (ratio != null) return (int)Math.round(text.x + (at - text.x) / ratio);
-			return at;
+			GL11.glPushMatrix();
+			pop = true;
+			int idx = stackDepth + 1;
+			text.stackTrace = new Throwable().getStackTrace();
+			RenderingAdapter    worker = adapters[0].get(text.stackTrace[++idx].getClassName());
+			if (worker == null) worker = adapters[1].get(text.stackTrace[++idx].getClassName());
+			if (worker == null) worker = debugger;
+			ratio = worker.adjust(text);
+			if (ratio != null) {
+				textScale.put(text.string.trim() + "@" + text.stackTrace[idx].getClassName(), ratio);
+				text.wrapWidth = (int)Math.round(text.wrapWidth * ratio);
+			}
 		}
-		return drawPlain(text);
+		int at = 0;
+		if (text.wrap) {
+			proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
+		} else {
+			at = proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
+		}
+		if (pop) GL11.glPopMatrix();
+		if (ratio != null) return (int)Math.round(text.x + (at - text.x) / ratio);
+		return at;
 	}
 	
 	public double getScaleRatio(String string) {
