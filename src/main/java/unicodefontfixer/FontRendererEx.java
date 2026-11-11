@@ -31,7 +31,7 @@ public class FontRendererEx extends FontRenderer {
 	public static boolean initialized = false;
 	public static boolean checkingStackDepth = false;
 	
-	private static final FloatBuffer PROJ_BUF = BufferUtils.createFloatBuffer(16);
+	private static final FloatBuffer MV_BUF = BufferUtils.createFloatBuffer(16);
 	
 	public FontRenderer proxy;
 	public int stackDepth;
@@ -42,11 +42,16 @@ public class FontRendererEx extends FontRenderer {
 	
 	private boolean isGuiContext() {
 		try {
-			PROJ_BUF.clear();
-			GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJ_BUF);
-			return PROJ_BUF.get(14) == 0.0F;
+			MV_BUF.clear();
+			GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MV_BUF);
+			return Math.abs(MV_BUF.get(1)) < 1e-4 &&
+			       Math.abs(MV_BUF.get(2)) < 1e-4 &&
+			       Math.abs(MV_BUF.get(4)) < 1e-4 &&
+			       Math.abs(MV_BUF.get(6)) < 1e-4 &&
+			       Math.abs(MV_BUF.get(8)) < 1e-4 &&
+			       Math.abs(MV_BUF.get(9)) < 1e-4;
 		} catch (Throwable t) {
-			return true; // 查询失败就当作 GUI，绝不让字体渲染崩掉
+			return true;
 		}
 	}
 	
@@ -74,40 +79,37 @@ public class FontRendererEx extends FontRenderer {
 		}
 		proxy.FONT_HEIGHT = this.FONT_HEIGHT;
 		
-		// 世界渲染（告示牌等）直接原样绘制，不做任何缩放检测
-		if (!isGuiContext()) return drawPlain(text);
-		
 		double rawScale = GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX);
-		if (!(rawScale >= 0.25 && rawScale < 1.0 && ((policy == 2 && this.getUnicodeFlag()) || policy == 1))) {
-			return drawPlain(text);
-		}
-		
-		GL11.glPushMatrix();
-		Double ratio = null;
-		int at = 0;
-		try {
-			int idx = stackDepth + 1;
-			text.stackTrace = new Throwable().getStackTrace();
-			RenderingAdapter worker = adapters[0].get(text.stackTrace[++idx].getClassName());
-			if (worker == null) worker = adapters[1].get(text.stackTrace[++idx].getClassName());
-			if (worker == null) worker = debugger;
-			ratio = worker.adjust(text);
-			if (ratio != null) {
-				textScale.put(text.string.trim() + "@" + text.stackTrace[idx].getClassName(), ratio);
-				text.wrapWidth = (int)Math.round(text.wrapWidth * ratio);
+		if (rawScale >= 0.25 && rawScale < 1.0 && ((policy == 2 && this.getUnicodeFlag()) || policy == 1)) {
+			if (!isGuiContext()) return drawPlain(text);
+			
+			GL11.glPushMatrix();
+			Double ratio = null;
+			int at = 0;
+			try {
+				int idx = stackDepth + 1;
+				text.stackTrace = new Throwable().getStackTrace();
+				RenderingAdapter worker = adapters[0].get(text.stackTrace[++idx].getClassName());
+				if (worker == null) worker = adapters[1].get(text.stackTrace[++idx].getClassName());
+				if (worker == null) worker = debugger;
+				ratio = worker.adjust(text);
+				if (ratio != null) {
+					textScale.put(text.string.trim() + "@" + text.stackTrace[idx].getClassName(), ratio);
+					text.wrapWidth = (int)Math.round(text.wrapWidth * ratio);
+				}
+				if (text.wrap) {
+					proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
+				} else {
+					at = proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
+				}
+			} finally {
+				GL11.glPopMatrix();
 			}
-			// ★ 必须在矩阵仍 push 时绘制，缩放才生效
-			if (text.wrap) {
-				proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
-			} else {
-				at = proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
-			}
-		} finally {
-			GL11.glPopMatrix();
+			if (text.wrap) return 0;
+			if (ratio != null) return (int)Math.round(text.x + (at - text.x) / ratio);
+			return at;
 		}
-		if (text.wrap) return 0;
-		if (ratio != null) return (int)Math.round(text.x + (at - text.x) / ratio);
-		return at;
+		return drawPlain(text);
 	}
 	
 	public double getScaleRatio(String string) {
