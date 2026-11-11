@@ -31,11 +31,35 @@ public class FontRendererEx extends FontRenderer {
 	public static boolean initialized = false;
 	public static boolean checkingStackDepth = false;
 	
+	/** 复用投影矩阵缓冲区，避免每次分配 */
+	private static final FloatBuffer PROJ_BUF = BufferUtils.createFloatBuffer(16);
+	
 	public FontRenderer proxy;
 	public int stackDepth;
 	
 	public FontRendererEx(GameSettings gs, ResourceLocation rl, TextureManager tm, boolean flag) {
 		super(gs, rl, tm, flag);
+	}
+	
+	/**
+	 * 当前是否处于 UI/Overlay 渲染（正交投影）。
+	 * 告示牌、物品展示框、实体名牌等 3D 文字是透视投影，这里返回 false。
+	 */
+	private boolean isGuiContext() {
+		PROJ_BUF.clear();
+		GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJ_BUF);
+		// 列主序下，下标 14 = matrix[3][2]：
+		// 正交投影为 0，透视投影非 0
+		return PROJ_BUF.get(14) == 0.0F;
+	}
+	
+	/** 不缩放、直接原样绘制的快速路径（也避免创建 StackTrace） */
+	private int drawPlain(RenderingText text) {
+		if (text.wrap) {
+			proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
+			return 0;
+		}
+		return proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
 	}
 	
 	public int drawStringChecked(RenderingText text) {
@@ -52,16 +76,23 @@ public class FontRendererEx extends FontRenderer {
 			}
 			return 0;
 		}
-		Double ratio = null;
-		boolean pop = false;
 		proxy.FONT_HEIGHT = this.FONT_HEIGHT;
+		
+		// ★ 核心修复：世界渲染（告示牌等）直接走原始路径，不做任何检测
+		if (!isGuiContext()) return drawPlain(text);
+		
 		double rawScale = GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX);
-		if (rawScale >= 0.25 && rawScale < 1.0 && ((policy == 2 && this.getUnicodeFlag()) || policy == 1)) {
-			GL11.glPushMatrix();
-			pop = true;
+		if (!(rawScale >= 0.25 && rawScale < 1.0 && ((policy == 2 && this.getUnicodeFlag()) || policy == 1))) {
+			return drawPlain(text);
+		}
+		
+		// —— 以下是原缩放逻辑（只有 GUI 字体才会走到）——
+		GL11.glPushMatrix();
+		Double ratio = null;
+		try {
 			int idx = stackDepth + 1;
 			text.stackTrace = new Throwable().getStackTrace();
-			RenderingAdapter    worker = adapters[0].get(text.stackTrace[++idx].getClassName());
+			RenderingAdapter worker = adapters[0].get(text.stackTrace[++idx].getClassName());
 			if (worker == null) worker = adapters[1].get(text.stackTrace[++idx].getClassName());
 			if (worker == null) worker = debugger;
 			ratio = worker.adjust(text);
@@ -69,14 +100,15 @@ public class FontRendererEx extends FontRenderer {
 				textScale.put(text.string.trim() + "@" + text.stackTrace[idx].getClassName(), ratio);
 				text.wrapWidth = (int)Math.round(text.wrapWidth * ratio);
 			}
+		} finally {
+			// 确保任何情况下矩阵都会被弹出
+			GL11.glPopMatrix();
 		}
-		int at = 0;
 		if (text.wrap) {
 			proxy.drawSplitString(text.string, text.x, text.y, text.wrapWidth, text.color);
-		} else {
-			at = proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
+			return 0;
 		}
-		if (pop) GL11.glPopMatrix();
+		int at = proxy.drawString(text.string, text.x, text.y, text.color, text.dropShadow);
 		if (ratio != null) return (int)Math.round(text.x + (at - text.x) / ratio);
 		return at;
 	}
@@ -84,11 +116,14 @@ public class FontRendererEx extends FontRenderer {
 	public double getScaleRatio(String string) {
 		Double ratio = null;
 		if (string != null && ((policy == 2 && this.getUnicodeFlag()) || policy == 1)) {
-			final CallerClassTracer cct = new CallerClassTracer();
-			String caller = cct.getCaller(stackDepth + 3).getName(); 
-			RenderingAdapter worker = adapters[0].get(caller);
-			if (worker != null) ratio = worker.resize(string);
-			if (ratio  == null) ratio = textScale.get(string.trim() + "@" + caller);
+			// ★ 告示牌渲染也会走 getStringWidth → getScaleRatio，这里同样要拦截
+			if (isGuiContext()) {
+				final CallerClassTracer cct = new CallerClassTracer();
+				String caller = cct.getCaller(stackDepth + 3).getName(); 
+				RenderingAdapter worker = adapters[0].get(caller);
+				if (worker != null) ratio = worker.resize(string);
+				if (ratio  == null) ratio = textScale.get(string.trim() + "@" + caller);
+			}
 		}
 		proxy.FONT_HEIGHT = this.FONT_HEIGHT;
 		return ratio == null ? 1.0 : ratio;
