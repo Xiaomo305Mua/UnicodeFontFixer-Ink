@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [ 1.7.10 ]
+    tags: [ '*' ]
+    paths:
+      - '.github/**'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - 'src/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 4.4.1
+
+      - name: Build
+        run: gradle build --no-daemon
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnicodeFontFixer-Ink
+          path: build/libs/*.jar
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/*.jar
+          generate_release_notes: true

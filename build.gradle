@@ -1,0 +1,58 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven {
+            name = "forge"
+            url = "https://maven.minecraftforge.net/"
+        }
+        maven {
+            name = "sonatype"
+            url = "https://oss.sonatype.org/content/repositories/snapshots/"
+        }
+    }
+    dependencies {
+        classpath 'com.anatawa12.forge:ForgeGradle:1.2-1.1.1'
+    }
+}
+
+apply plugin: 'forge'
+
+version = modVersion
+group = modGroup
+archivesBaseName = modArchivesBaseName
+
+minecraft {
+    version = "1.7.10-10.13.4.1614-1.7.10"
+    runDir = "eclipse"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    def p = { String k -> project.hasProperty(k) ? project.property(k) : "" }
+    def mcModInfoProps = [
+        'modId'           : p('modId'),
+        'modName'         : p('modName'),
+        'modDescription'  : p('modDescription'),
+        'modVersion'      : p('modVersion'),
+        'minecraftVersion': project.minecraft.version.split('-')[0],
+        'modUrl'          : p('modUrl'),
+        'authorList'      : p('authorList'),
+        'credits'         : p('credits'),
+        'logoFile'        : p('logoFile')
+    ]
+
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand mcModInfoProps
+    }
+
+    from(sourceSets.main.resources.srcDirs) {
+        exclude '**/*.info'
+    }
+}
+
+jar {
+    exclude "**/*.psd"
+}
