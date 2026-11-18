@@ -6,7 +6,7 @@
     "version": "${modVersion}",
     "mcversion": "${minecraftVersion}",
     "url": "${modUrl}",
-    "authorList": [${authorList}],
+    "authorList": ["${authorList}"],
     "credits": "${credits}",
     "logoFile": "${logoFile}"
   }
