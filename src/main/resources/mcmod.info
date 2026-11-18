@@ -4,7 +4,7 @@
     "name": "${modName}",
     "description": "${modDescription}",
     "version": "${modVersion}",
-    "mcversion": "${minecraftVersion}",
+    "mcversion": "${mcVersion}",
     "url": "${modUrl}",
     "authorList": ["${authorList}"],
     "credits": "${credits}",
