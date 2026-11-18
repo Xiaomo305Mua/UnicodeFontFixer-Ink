@@ -27,16 +27,13 @@ minecraft {
 }
 
 processResources {
-    inputs.property "version", project.version
-    inputs.property "mcversion", project.minecraft.version
-
     def p = { String k -> project.hasProperty(k) ? project.property(k) : "" }
     def mcModInfoProps = [
         'modId'           : p('modId'),
         'modName'         : p('modName'),
         'modDescription'  : p('modDescription'),
         'modVersion'      : p('modVersion'),
-        'minecraftVersion': project.minecraft.version.split('-')[0],
+        'mcVersion': project.minecraft.version.split('-')[0],
         'modUrl'          : p('modUrl'),
         'authorList'      : p('authorList'),
         'credits'         : p('credits'),
@@ -49,10 +46,6 @@ processResources {
     }
 
     from(sourceSets.main.resources.srcDirs) {
-        exclude '**/*.info'
+        exclude 'mcmod.info'
     }
-}
-
-jar {
-    exclude "**/*.psd"
 }
